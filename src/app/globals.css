@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #e5e5e5;
+    --card: #111111;
+    --card-foreground: #e5e5e5;
+    --popover: #161616;
+    --popover-foreground: #e5e5e5;
+    --primary: #22c55e;
+    --primary-foreground: #0a0a0a;
+    --secondary: #1c1c1c;
+    --secondary-foreground: #a3a3a3;
+    --muted: #1a1a1a;
+    --muted-foreground: #737373;
+    --accent: #262626;
+    --accent-foreground: #e5e5e5;
+    --destructive: #ef4444;
+    --destructive-foreground: #ffffff;
+    --border: #262626;
+    --input: #262626;
+    --ring: #22c55e;
+    --radius: 6px;
+  }
+
+  html,
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  ::selection {
+    @apply bg-primary/20 text-primary-foreground;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0a0a0a;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2a2a2a;
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a3a3a;
+  }
+}
+
+@layer components {
+  .terminal-card {
+    @apply rounded-lg border border-border bg-card text-card-foreground shadow-sm backdrop-blur;
+  }
+  .terminal-card-hover {
+    @apply transition-colors hover:border-border/70 hover:bg-accent/40;
+  }
+  .stat-label {
+    @apply text-[10px] uppercase tracking-widest text-muted-foreground font-medium;
+  }
+  .stat-value {
+    @apply text-xl font-semibold text-foreground font-mono tabular-nums;
+  }
+  .terminal-th {
+    @apply h-9 px-3 text-left align-middle font-medium text-muted-foreground text-[11px] uppercase tracking-wider;
+  }
+  .terminal-td {
+    @apply p-3 align-middle text-sm;
+  }
+  .terminal-tr {
+    @apply border-b border-border/60 transition-colors hover:bg-accent/30;
+  }
+  .ctabtn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md text-xs font-bold uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50;
+  }
+}
