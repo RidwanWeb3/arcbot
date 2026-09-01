@@ -18,6 +18,7 @@ export async function getErc20Metadata(address: Hex): Promise<{
 }> {
   const client = getArcPublicClient();
   const defaults = { name: "???", symbol: "???", decimals: 18, totalSupply: 0n };
+  const anySuccessRef = { value: false };
   try {
     const results = (await client.multicall({
       contracts: [
@@ -34,6 +35,7 @@ export async function getErc20Metadata(address: Hex): Promise<{
     const tsR = results[3];
     const coerceStr = (r: { status: string; result?: unknown }, fallback: string) => {
       if (r.status !== "success" || r.result === undefined || r.result === null) return fallback;
+      anySuccessRef.value = true;
       const raw = r.result;
       if (typeof raw === "string") return raw;
       try {
@@ -45,6 +47,7 @@ export async function getErc20Metadata(address: Hex): Promise<{
     };
     const coerceNum = (r: { status: string; result?: unknown }, fallback: number) => {
       if (r.status !== "success" || r.result === undefined || r.result === null) return fallback;
+      anySuccessRef.value = true;
       try {
         const n = Number(r.result);
         return Number.isFinite(n) && n >= 0 && n <= 36 ? n : fallback;
@@ -54,6 +57,7 @@ export async function getErc20Metadata(address: Hex): Promise<{
     };
     const coerceBi = (r: { status: string; result?: unknown }, fallback: bigint) => {
       if (r.status !== "success" || r.result === undefined || r.result === null) return fallback;
+      anySuccessRef.value = true;
       try {
         return BigInt(String(r.result));
       } catch {
@@ -64,17 +68,25 @@ export async function getErc20Metadata(address: Hex): Promise<{
     const symbol = coerceStr(symbolR, defaults.symbol);
     const decimals = coerceNum(decR, defaults.decimals);
     const totalSupply = coerceBi(tsR, defaults.totalSupply);
+    if (!anySuccessRef.value) {
+      throw new Error("RPC_UNAVAILABLE");
+    }
     return { name, symbol, decimals, totalSupply };
-  } catch {
-    const safeCall = async <T,>(fn: () => Promise<T>, fallback: T, post?: (v: T) => unknown): Promise<unknown> => {
+  } catch (e) {
+    if (e instanceof Error && e.message === "RPC_UNAVAILABLE") {
+      throw new Error(
+        "RPC unavailable or eth_call blocked (check provider quota / RPC URL)."
+      );
+    }
+    const safeCall = async <T,>(fn: () => Promise<T>, fallback: T, post?: (v: T) => unknown): Promise<{ value: unknown; ok: boolean }> => {
       try {
         const v = await fn();
-        return post ? post(v) : v;
+        return { value: post ? post(v) : v, ok: true };
       } catch {
-        return fallback;
+        return { value: fallback, ok: false };
       }
     };
-    const [name, symbol, decimals, totalSupply] = await Promise.all([
+    const [nameRes, symRes, decRes, tsRes] = await Promise.all([
       safeCall(() => client.readContract({ address, abi: ERC20_ABI, functionName: "name" }), defaults.name, (v) =>
         typeof v === "string" ? v : defaults.name,
       ),
@@ -93,11 +105,17 @@ export async function getErc20Metadata(address: Hex): Promise<{
         }
       }),
     ]);
+    anySuccessRef.value = nameRes.ok || symRes.ok || decRes.ok || tsRes.ok;
+    if (!anySuccessRef.value) {
+      throw new Error(
+        "RPC unavailable or eth_call blocked (check provider quota / RPC URL)."
+      );
+    }
     return {
-      name: String(name ?? defaults.name).replace(/\u0000/g, "").trim() || defaults.name,
-      symbol: String(symbol ?? defaults.symbol).replace(/\u0000/g, "").trim() || defaults.symbol,
-      decimals: Number(decimals ?? defaults.decimals),
-      totalSupply: BigInt(String(totalSupply ?? defaults.totalSupply)),
+      name: String(nameRes.value ?? defaults.name).replace(/\u0000/g, "").trim() || defaults.name,
+      symbol: String(symRes.value ?? defaults.symbol).replace(/\u0000/g, "").trim() || defaults.symbol,
+      decimals: Number(decRes.value ?? defaults.decimals),
+      totalSupply: BigInt(String(tsRes.value ?? defaults.totalSupply)),
     };
   }
 }
@@ -106,6 +124,7 @@ export async function findUsdcPoolForToken(
   tokenAddress: Hex
 ): Promise<{ pool: Hex; fee: number } | null> {
   const client = getArcPublicClient();
+  let anySuccessCall = false;
   try {
     const results = await client.multicall({
       contracts: UNISWAP_V3_FEE_TIERS.map((fee) => ({
@@ -122,6 +141,7 @@ export async function findUsdcPoolForToken(
         status: "success" | "failure";
         result?: unknown;
       };
+      if (res.status === "success") anySuccessCall = true;
       if (
         res.status === "success" &&
         typeof res.result === "string" &&
@@ -130,8 +150,13 @@ export async function findUsdcPoolForToken(
         return { pool: res.result as Hex, fee: UNISWAP_V3_FEE_TIERS[i] };
       }
     }
+    if (!anySuccessCall) {
+      throw new Error("RPC_UNAVAILABLE");
+    }
     return null;
-  } catch {
+  } catch (e) {
+    if (e instanceof Error && e.message === "RPC_UNAVAILABLE") throw e;
+    anySuccessCall = false;
     for (let i = 0; i < UNISWAP_V3_FEE_TIERS.length; i++) {
       try {
         const pool = (await client.readContract({
@@ -140,6 +165,7 @@ export async function findUsdcPoolForToken(
           functionName: "getPool",
           args: [tokenAddress, ARC_CONTRACTS.USDC, UNISWAP_V3_FEE_TIERS[i]],
         })) as unknown;
+        anySuccessCall = true;
         if (
           typeof pool === "string" &&
           pool !== "0x0000000000000000000000000000000000000000"
@@ -149,6 +175,9 @@ export async function findUsdcPoolForToken(
       } catch {
         continue;
       }
+    }
+    if (!anySuccessCall) {
+      throw new Error("RPC unavailable: cannot reach Uniswap V3 Factory");
     }
     return null;
   }
