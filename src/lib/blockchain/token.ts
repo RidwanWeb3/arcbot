@@ -17,30 +17,87 @@ export async function getErc20Metadata(address: Hex): Promise<{
   totalSupply: bigint;
 }> {
   const client = getArcPublicClient();
+  const defaults = { name: "???", symbol: "???", decimals: 18, totalSupply: 0n };
   try {
-    const [name, symbol, decimals, totalSupply] = (await client.multicall({
+    const results = (await client.multicall({
       contracts: [
         { address, abi: ERC20_ABI, functionName: "name" },
         { address, abi: ERC20_ABI, functionName: "symbol" },
         { address, abi: ERC20_ABI, functionName: "decimals" },
         { address, abi: ERC20_ABI, functionName: "totalSupply" },
       ],
-      allowFailure: false,
-    })) as [string, string, number, bigint];
+      allowFailure: true,
+    })) as Array<{ status: "success" | "failure"; result?: unknown }>;
+    const nameR = results[0];
+    const symbolR = results[1];
+    const decR = results[2];
+    const tsR = results[3];
+    const coerceStr = (r: { status: string; result?: unknown }, fallback: string) => {
+      if (r.status !== "success" || r.result === undefined || r.result === null) return fallback;
+      const raw = r.result;
+      if (typeof raw === "string") return raw;
+      try {
+        const s = String(raw);
+        return s.replace(/\u0000/g, "").trim() || fallback;
+      } catch {
+        return fallback;
+      }
+    };
+    const coerceNum = (r: { status: string; result?: unknown }, fallback: number) => {
+      if (r.status !== "success" || r.result === undefined || r.result === null) return fallback;
+      try {
+        const n = Number(r.result);
+        return Number.isFinite(n) && n >= 0 && n <= 36 ? n : fallback;
+      } catch {
+        return fallback;
+      }
+    };
+    const coerceBi = (r: { status: string; result?: unknown }, fallback: bigint) => {
+      if (r.status !== "success" || r.result === undefined || r.result === null) return fallback;
+      try {
+        return BigInt(String(r.result));
+      } catch {
+        return fallback;
+      }
+    };
+    const name = coerceStr(nameR, defaults.name);
+    const symbol = coerceStr(symbolR, defaults.symbol);
+    const decimals = coerceNum(decR, defaults.decimals);
+    const totalSupply = coerceBi(tsR, defaults.totalSupply);
     return { name, symbol, decimals, totalSupply };
   } catch {
-    const calls = [
-      client.readContract({ address, abi: ERC20_ABI, functionName: "name" }),
-      client.readContract({ address, abi: ERC20_ABI, functionName: "symbol" }),
-      client.readContract({ address, abi: ERC20_ABI, functionName: "decimals" }),
-      client.readContract({ address, abi: ERC20_ABI, functionName: "totalSupply" }),
-    ] as const;
-    const [name, symbol, decimals, totalSupply] = await Promise.all(calls);
+    const safeCall = async <T,>(fn: () => Promise<T>, fallback: T, post?: (v: T) => unknown): Promise<unknown> => {
+      try {
+        const v = await fn();
+        return post ? post(v) : v;
+      } catch {
+        return fallback;
+      }
+    };
+    const [name, symbol, decimals, totalSupply] = await Promise.all([
+      safeCall(() => client.readContract({ address, abi: ERC20_ABI, functionName: "name" }), defaults.name, (v) =>
+        typeof v === "string" ? v : defaults.name,
+      ),
+      safeCall(() => client.readContract({ address, abi: ERC20_ABI, functionName: "symbol" }), defaults.symbol, (v) =>
+        typeof v === "string" ? v : defaults.symbol,
+      ),
+      safeCall(() => client.readContract({ address, abi: ERC20_ABI, functionName: "decimals" }), defaults.decimals, (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) && n >= 0 && n <= 36 ? n : defaults.decimals;
+      }),
+      safeCall(() => client.readContract({ address, abi: ERC20_ABI, functionName: "totalSupply" }), defaults.totalSupply, (v) => {
+        try {
+          return BigInt(String(v));
+        } catch {
+          return defaults.totalSupply;
+        }
+      }),
+    ]);
     return {
-      name: String(name),
-      symbol: String(symbol),
-      decimals: Number(decimals),
-      totalSupply: BigInt(String(totalSupply ?? 0)),
+      name: String(name ?? defaults.name).replace(/\u0000/g, "").trim() || defaults.name,
+      symbol: String(symbol ?? defaults.symbol).replace(/\u0000/g, "").trim() || defaults.symbol,
+      decimals: Number(decimals ?? defaults.decimals),
+      totalSupply: BigInt(String(totalSupply ?? defaults.totalSupply)),
     };
   }
 }

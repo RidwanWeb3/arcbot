@@ -393,7 +393,19 @@ export default function MassTradingPage() {
                 placeholder="0x… (40 hex chars)"
                 value={tokenAddr}
                 onChange={(e) => {
-                  setTokenAddr(e.target.value.trim());
+                  let raw = e.target.value.trim();
+                  if (raw) {
+                    const onlyHex = raw.replace(/[^0-9a-fA-Fx]/g, "");
+                    if (/^[0-9a-fA-F]{40}$/.test(onlyHex)) {
+                      raw = "0x" + onlyHex;
+                    } else if (
+                      /^0x[0-9a-fA-F]{40}$/.test(onlyHex) ||
+                      onlyHex.toLowerCase().startsWith("0x")
+                    ) {
+                      raw = onlyHex;
+                    }
+                  }
+                  setTokenAddr(raw);
                   setPreview(null);
                 }}
               />

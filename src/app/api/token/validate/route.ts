@@ -8,13 +8,23 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as { address: string };
-    if (!body.address || !/^0x[0-9a-fA-F]{40}$/.test(body.address)) {
+    if (!body.address) {
       return NextResponse.json(
         { error: "Invalid token address" },
         { status: 400 }
       );
     }
-    const token = await validateToken(body.address as Hex);
+    let address = body.address.trim();
+    if (address.length === 40 && /^[0-9a-fA-F]{40}$/.test(address)) {
+      address = "0x" + address;
+    }
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+      return NextResponse.json(
+        { error: "Invalid token address (must be 0x + 40 hex chars)" },
+        { status: 400 }
+      );
+    }
+    const token = await validateToken(address as Hex);
     await writeAudit({
       action: "TOKEN.VALIDATE",
       status: token.verified ? "VERIFIED" : "UNVERIFIED",
